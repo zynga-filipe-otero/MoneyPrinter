@@ -39,14 +39,13 @@ def generate_response(prompt: str, ai_model: str) -> str:
         # Newest G4F Architecture
         client = Client()
         response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            provider=g4f.Provider.You, 
+            model="gpt-4o",
             messages=[{"role": "user", "content": prompt}],
         ).choices[0].message.content
 
-    elif ai_model in ["gpt3.5-turbo", "gpt4"]:
+    elif ai_model in ["gpt3.5-turbo", "gpt-4"]:
 
-        model_name = "gpt-3.5-turbo" if ai_model == "gpt3.5-turbo" else "gpt-4-1106-preview"
+        model_name = "gpt-4o" if ai_model == "gpt3.5-turbo" else "gpt-4o"
 
         response = openai.chat.completions.create(
 

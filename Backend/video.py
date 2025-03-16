@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import uuid
 
 import requests
@@ -6,12 +7,13 @@ import srt_equalizer
 import assemblyai as aai
 
 from typing import List
-from moviepy.editor import *
 from termcolor import colored
 from dotenv import load_dotenv
 from datetime import timedelta
-from moviepy.video.fx.all import crop
-from moviepy.video.tools.subtitles import SubtitlesClip
+from moviepy import VideoFileClip, AudioFileClip, CompositeVideoClip, concatenate_videoclips
+from moviepy.video.fx import Crop, Resize
+from moviepy.video.tools.subtitles import SubtitlesClip, TextClip
+
 
 load_dotenv("../.env")
 
@@ -174,75 +176,81 @@ def combine_videos(video_paths: List[str], max_duration: int, max_clip_duration:
             clip = clip.without_audio()
             # Check if clip is longer than the remaining audio
             if (max_duration - tot_dur) < clip.duration:
-                clip = clip.subclip(0, (max_duration - tot_dur))
+                clip = clip.subclipped(0, (max_duration - tot_dur))
             # Only shorten clips if the calculated clip length (req_dur) is shorter than the actual clip to prevent still image
             elif req_dur < clip.duration:
-                clip = clip.subclip(0, req_dur)
-            clip = clip.set_fps(30)
+                clip = clip.subclipped(0, req_dur)
+            #clip = clip.set_fps(30)
 
             # Not all videos are same size,
             # so we need to resize them
             if round((clip.w/clip.h), 4) < 0.5625:
-                clip = crop(clip, width=clip.w, height=round(clip.w/0.5625), \
+                Crop(clip, width=clip.w, height=round(clip.w/0.5625), \
                             x_center=clip.w / 2, \
                             y_center=clip.h / 2)
             else:
-                clip = crop(clip, width=round(0.5625*clip.h), height=clip.h, \
+                Crop(clip, width=round(0.5625*clip.h), height=clip.h, \
                             x_center=clip.w / 2, \
                             y_center=clip.h / 2)
-            clip = clip.resize((1080, 1920))
+            Resize(clip, (1080, 1920))
 
             if clip.duration > max_clip_duration:
-                clip = clip.subclip(0, max_clip_duration)
+                clip = clip.subclipped(0, max_clip_duration)
 
             clips.append(clip)
             tot_dur += clip.duration
 
     final_clip = concatenate_videoclips(clips)
-    final_clip = final_clip.set_fps(30)
+    #final_clip = final_clip.fps = 30
     final_clip.write_videofile(combined_video_path, threads=threads)
 
     return combined_video_path
 
 
-def generate_video(combined_video_path: str, tts_path: str, subtitles_path: str, threads: int, subtitles_position: str,  text_color : str) -> str:
-    """
-    This function creates the final video, with subtitles and audio.
+def generate_video(combined_video_path: str, tts_path: str, subtitles_path: str, 
+                 threads: int, subtitles_position: str, text_color: str) -> str:
+    # Verify input files exist
+    if not Path(combined_video_path).exists():
+        raise FileNotFoundError(f"Video file missing: {combined_video_path}")
+    
+    if not Path(tts_path).exists():
+        raise FileNotFoundError(f"Audio file missing: {tts_path}")
 
-    Args:
-        combined_video_path (str): The path to the combined video.
-        tts_path (str): The path to the text-to-speech audio.
-        subtitles_path (str): The path to the subtitles.
-        threads (int): The number of threads to use for the video processing.
-        subtitles_position (str): The position of the subtitles.
+    # Get absolute font path
+    font_path = Path(__file__).parent.parent / "fonts" / "bold_font.ttf"
+    if not font_path.exists():
+        raise FileNotFoundError(f"Font file missing: {font_path}")
 
-    Returns:
-        str: The path to the final video.
-    """
-    # Make a generator that returns a TextClip when called with consecutive
+    # Create text generator
     generator = lambda txt: TextClip(
-        txt,
-        font="../fonts/bold_font.ttf",
+        txt=txt,
+        font=str(font_path),
         fontsize=100,
         color=text_color,
-        stroke_color="black",
+        stroke_color='black',
         stroke_width=5,
+        size=(1080, 300),
+        method='caption'
     )
 
-    # Split the subtitles position into horizontal and vertical
-    horizontal_subtitles_position, vertical_subtitles_position = subtitles_position.split(",")
+    # Create subtitles
+    subs = SubtitlesClip(subtitles_path, generator)
+    horiz, vert = subtitles_position.split(',')
+    subs = subs.set_position((horiz, vert))
 
-    # Burn the subtitles into the video
-    subtitles = SubtitlesClip(subtitles_path, generator)
-    result = CompositeVideoClip([
-        VideoFileClip(combined_video_path),
-        subtitles.set_pos((horizontal_subtitles_position, vertical_subtitles_position))
-    ])
+    # Composite video
+    video = VideoFileClip(combined_video_path)
+    result = CompositeVideoClip([video, subs.set_duration(video.duration)])
+    result = result.set_audio(AudioFileClip(tts_path))
 
-    # Add the audio
-    audio = AudioFileClip(tts_path)
-    result = result.set_audio(audio)
-
-    result.write_videofile("../temp/output.mp4", threads=threads or 2)
-
-    return "output.mp4"
+    # Write output
+    output_path = "../temp/final_output.mp4"
+    result.write_videofile(
+        output_path,
+        threads=threads,
+        preset='ultrafast',
+        audio_codec='aac',
+        verbose=False
+    )
+    
+    return output_path

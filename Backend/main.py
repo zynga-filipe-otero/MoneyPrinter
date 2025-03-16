@@ -18,14 +18,15 @@ from termcolor import colored
 from youtube import upload_video
 from apiclient.errors import HttpError
 from flask import Flask, request, jsonify
-from moviepy.config import change_settings
-
-
+from moviepy import AudioFileClip, concatenate_audioclips, CompositeAudioClip
+#from moviepy.config import change_settings
+import ssl
+ssl._create_default_https_context = ssl._create_unverified_context
 
 # Set environment variables
 SESSION_ID = os.getenv("TIKTOK_SESSION_ID")
 openai_api_key = os.getenv('OPENAI_API_KEY')
-change_settings({"IMAGEMAGICK_BINARY": os.getenv("IMAGEMAGICK_BINARY")})
+#change_settings({"IMAGEMAGICK_BINARY": os.getenv("IMAGEMAGICK_BINARY")})
 
 # Initialize Flask
 app = Flask(__name__)
@@ -51,6 +52,7 @@ def generate():
         clean_dir("../subtitles/")
 
 
+        print("Parsing JSON")
         # Parse JSON
         data = request.get_json()
         paragraph_number = int(data.get('paragraphNumber', 1))  # Default to 1 if not provided
@@ -59,6 +61,7 @@ def generate():
         subtitles_position = data.get('subtitlesPosition')  # Position of the subtitles in the video
         text_color = data.get('color') # Color of subtitle text
 
+        print("using music")
         # Get 'useMusic' from the request data and default to False if not provided
         use_music = data.get('useMusic', False)
 
@@ -102,6 +105,8 @@ def generate():
             print(colored("[!] No voice was selected. Defaulting to \"en_us_001\"", "yellow"))
             voice = "en_us_001"
             voice_prefix = voice[:2]
+
+        print(colored("   Generating script ", "green"))  # Print the AI model being used
 
 
         # Generate a script
@@ -291,15 +296,15 @@ def generate():
             # Add song to video at 30% volume using moviepy
             original_duration = video_clip.duration
             original_audio = video_clip.audio
-            song_clip = AudioFileClip(song_path).set_fps(44100)
+            song_clip = AudioFileClip(song_path)
 
             # Set the volume of the song to 10% of the original volume
-            song_clip = song_clip.volumex(0.1).set_fps(44100)
+            #song_clip = song_clip.volumex(0.1).set_fps(44100)
 
             # Add the song to the video
             comp_audio = CompositeAudioClip([original_audio, song_clip])
             video_clip = video_clip.set_audio(comp_audio)
-            video_clip = video_clip.set_fps(30)
+            video_clip = video_clip.fps = 30
             video_clip = video_clip.set_duration(original_duration)
             video_clip.write_videofile(f"../{final_video_path}", threads=n_threads or 1)
         else:
